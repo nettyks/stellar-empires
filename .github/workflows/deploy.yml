@@ -1,0 +1,29 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    name: Verification TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Verifier le backend
+        working-directory: server
+        run: |
+          npm install
+          npx tsc --noEmit
+
+      - name: Verifier le frontend
+        working-directory: client
+        run: |
+          npm install
+          npx tsc --noEmit
