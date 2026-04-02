@@ -4,6 +4,7 @@ import { WebSocketServer } from 'ws'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { gameRouter } from './routes/game'
+import { playerRouter } from './routes/player'
 import { GameManager } from './game/GameManager'
 
 dotenv.config()
@@ -18,6 +19,7 @@ app.use(express.json())
 
 // Routes API
 app.use('/api/game', gameRouter)
+app.use('/api/player', playerRouter)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', game: 'Stellar Empires' })

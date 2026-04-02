@@ -11,8 +11,61 @@
   <!-- Phaser.js canvas (fond animé) -->
   <div id="game"></div>
 
-  <!-- UI Overlay — par-dessus le canvas -->
-  <div id="ui-overlay">
+  <!-- Auth Overlay — affiché avant la connexion -->
+  <div id="auth-overlay">
+    <div class="auth-container">
+      <div class="auth-logo">
+        <div class="auth-logo-icon">SE</div>
+        <div class="auth-logo-title">Stellar Empires</div>
+        <div class="auth-logo-sub">Gestion · Économie · Diplomatie Spatiale</div>
+      </div>
+
+      <!-- Onglets login / register -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="authUI.showTab('login')">Connexion</button>
+        <button class="auth-tab" id="tab-register" onclick="authUI.showTab('register')">Créer un compte</button>
+      </div>
+
+      <!-- Formulaire Connexion -->
+      <form id="form-login" class="auth-form" onsubmit="authUI.login(event)">
+        <div class="auth-field">
+          <label class="auth-label">Adresse email</label>
+          <input class="auth-input" id="login-email" type="email" placeholder="commandant@empire.space" required autocomplete="email" />
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Mot de passe</label>
+          <input class="auth-input" id="login-password" type="password" placeholder="••••••••" required autocomplete="current-password" />
+        </div>
+        <div id="login-error" class="auth-error" style="display:none"></div>
+        <button class="auth-submit" type="submit" id="login-btn">
+          <span id="login-btn-text">Accéder au Commandement</span>
+        </button>
+      </form>
+
+      <!-- Formulaire Inscription -->
+      <form id="form-register" class="auth-form" style="display:none" onsubmit="authUI.register(event)">
+        <div class="auth-field">
+          <label class="auth-label">Nom du Secteur</label>
+          <input class="auth-input" id="reg-username" type="text" placeholder="ex: Romulo, ZEPHYROS…" required minlength="2" maxlength="20" autocomplete="username" />
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Adresse email</label>
+          <input class="auth-input" id="reg-email" type="email" placeholder="commandant@empire.space" required autocomplete="email" />
+        </div>
+        <div class="auth-field">
+          <label class="auth-label">Mot de passe</label>
+          <input class="auth-input" id="reg-password" type="password" placeholder="••••••••" required minlength="6" autocomplete="new-password" />
+        </div>
+        <div id="register-error" class="auth-error" style="display:none"></div>
+        <button class="auth-submit" type="submit" id="register-btn">
+          <span id="register-btn-text">Fonder mon Secteur</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- UI Overlay — par-dessus le canvas (masqué jusqu'à connexion) -->
+  <div id="ui-overlay" style="display:none">
 
     <!-- ===== TOP NAVIGATION ===== -->
     <header id="top-nav">
@@ -110,11 +163,12 @@
 
         <div class="sidebar-footer">
           <div class="player-card">
-            <div class="player-avatar">R</div>
+            <div class="player-avatar" id="sidebar-avatar">R</div>
             <div class="player-info">
-              <div class="player-name">Secteur Romulo</div>
+              <div class="player-name" id="sidebar-username">Secteur</div>
               <div class="player-rank">ADMINISTRATEUR C2</div>
             </div>
+            <button class="nav-btn" title="Déconnexion" onclick="authUI.logout()" style="margin-left:auto; font-size:18px">logout</button>
           </div>
         </div>
       </aside>
@@ -1010,5 +1064,6 @@
   <!-- Scripts -->
   <script type="module" src="/src/main.ts"></script>
   <script type="module" src="/src/ui/ui.ts"></script>
+  <script type="module" src="/src/auth/auth-ui.ts"></script>
 </body>
 </html>

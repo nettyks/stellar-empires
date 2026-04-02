@@ -4,6 +4,9 @@
  * S'exécute en overlay par-dessus le canvas Phaser.js
  */
 
+import { config } from '../config'
+import { authManager } from '../auth/auth'
+
 interface BuildingData {
   name: string
   desc: string
@@ -21,6 +24,14 @@ interface TechData {
   icon: string
   desc: string
   status: string
+}
+
+interface PlayerState {
+  player: { id: string; username: string; score: number }
+  resources: { credits: number; energy: number; food: number; minerals: number }
+  planet: { id: string; name: string; population: number; type: string } | null
+  turn: number
+  buildings: string[]
 }
 
 // ============================================================
@@ -164,42 +175,124 @@ const TECHS: Record<string, TechData> = {
 // UI MANAGER
 // ============================================================
 class UIManager {
-  private currentScreen = 'dashboard'
+  private currentScreen  = 'dashboard'
   private currentBuilding = 'o2gen'
-  private currentTech = 'shielding'
-  private currentFleet = 'alpha'
-  private turn = 14
-  private credits = 142847
+  private currentTech    = 'shielding'
+  private currentFleet   = 'alpha'
+  private turn           = 1
+  private credits        = 0
+  private constructedBuildings: Set<string> = new Set()
 
   constructor() {
     this.init()
+    // Charger les données réelles dès que l'auth est prête
+    window.addEventListener('stellar:auth-ready', () => {
+      this.loadPlayerState()
+    })
   }
 
   init() {
-    // Écouter les clics sur la sidebar
     document.querySelectorAll<HTMLElement>('.sidebar-nav-item[data-screen]').forEach(item => {
       item.addEventListener('click', () => {
         const screen = item.dataset.screen
         if (screen) this.showScreen(screen)
       })
     })
-
-    // Afficher le dashboard par défaut
     this.showScreen('dashboard')
   }
 
+  // ----------------------------------------------------------
+  // Chargement des données réelles depuis le serveur
+  // ----------------------------------------------------------
+  async loadPlayerState() {
+    const token = authManager.token
+    if (!token) return
+
+    try {
+      const res = await fetch(`${config.serverUrl}/api/player/state`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      if (!res.ok) {
+        console.error('[UI] Erreur chargement état joueur:', res.status)
+        return
+      }
+
+      const state: PlayerState = await res.json()
+      this._applyState(state)
+    } catch (e) {
+      console.error('[UI] Erreur réseau:', e)
+    }
+  }
+
+  private _applyState(state: PlayerState) {
+    this.turn    = state.turn
+    this.credits = state.resources.credits
+    this.constructedBuildings = new Set(state.buildings)
+
+    // Mettre à jour le compteur de tour
+    const turnEl = document.getElementById('turn-counter')
+    if (turnEl) turnEl.textContent = `TOUR ${this.turn}`
+
+    // Mettre à jour les ressources dans la top nav
+    const creditsEl = document.getElementById('res-credits')
+    if (creditsEl) creditsEl.textContent = this.credits.toLocaleString('fr-FR')
+
+    const energyEl    = document.getElementById('res-energy')
+    const energyBarEl = document.getElementById('res-energy-bar')
+    if (energyEl)    energyEl.textContent    = `${state.resources.energy}%`
+    if (energyBarEl) energyBarEl.style.width = `${state.resources.energy}%`
+
+    const o2El    = document.getElementById('res-o2')
+    const o2BarEl = document.getElementById('res-o2-bar')
+    // O2 calculé comme proxy de food
+    const o2 = state.resources.food
+    if (o2El)    o2El.textContent    = `${o2}%`
+    if (o2BarEl) o2BarEl.style.width = `${o2}%`
+
+    const popEl = document.getElementById('res-pop')
+    if (popEl && state.planet) popEl.textContent = state.planet.population.toLocaleString('fr-FR')
+
+    // Mettre à jour le nom du secteur
+    const sectorNameEl = document.querySelector('.sector-name')
+    if (sectorNameEl && state.planet) sectorNameEl.textContent = state.planet.name
+
+    // Mettre à jour le badge tour dans le dashboard
+    const dashTourBadge = document.querySelector('.panel-badge-dark')
+    if (dashTourBadge) dashTourBadge.textContent = `TOUR ${this.turn}`
+
+    // Marquer les bâtiments construits comme déjà acquis
+    this._refreshBuildingCards()
+
+    console.log(`[Stellar Empires] État chargé — Tour ${this.turn} — ${this.credits.toLocaleString('fr-FR')} cr`)
+  }
+
+  private _refreshBuildingCards() {
+    document.querySelectorAll<HTMLElement>('.building-card').forEach(card => {
+      const onclick = card.getAttribute('onclick') ?? ''
+      const match = onclick.match(/selectBuilding\('(\w+)'\)/)
+      if (match) {
+        const bId = match[1]
+        if (this.constructedBuildings.has(bId)) {
+          card.classList.add('constructed')
+          card.setAttribute('title', 'Bâtiment construit')
+        }
+      }
+    })
+  }
+
+  // ----------------------------------------------------------
+  // Navigation
+  // ----------------------------------------------------------
   showScreen(screenId: string) {
-    // Cacher tous les écrans
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'))
 
-    // Activer l'écran cible
     const target = document.getElementById(`screen-${screenId}`)
     if (target) {
       target.classList.add('active')
       this.currentScreen = screenId
     }
 
-    // Mettre à jour la sidebar
     document.querySelectorAll('.sidebar-nav-item').forEach(item => {
       item.classList.remove('active')
       if ((item as HTMLElement).dataset.screen === screenId) {
@@ -207,7 +300,6 @@ class UIManager {
       }
     })
 
-    // Ajustements spécifiques par écran
     if (screenId === 'starmap') {
       document.getElementById('content-area')!.style.background = 'transparent'
     } else {
@@ -220,7 +312,6 @@ class UIManager {
     const data = BUILDINGS[buildingId]
     if (!data) return
 
-    // Mettre à jour la sélection visuelle
     document.querySelectorAll('.building-card').forEach(card => {
       card.classList.remove('selected')
     })
@@ -232,29 +323,38 @@ class UIManager {
       }
     })
 
-    // Mettre à jour le panneau de détail
-    const nameEl = document.getElementById('build-detail-name')
-    const iconEl = document.getElementById('build-detail-icon')
-    const descEl = document.getElementById('build-detail-desc')
-    const costEl = document.getElementById('build-detail-cost')
-    const upkeepEl = document.getElementById('build-detail-upkeep')
-    const outputEl = document.getElementById('build-detail-output')
-    const timeEl = document.getElementById('build-detail-time')
+    const nameEl    = document.getElementById('build-detail-name')
+    const iconEl    = document.getElementById('build-detail-icon')
+    const descEl    = document.getElementById('build-detail-desc')
+    const costEl    = document.getElementById('build-detail-cost')
+    const upkeepEl  = document.getElementById('build-detail-upkeep')
+    const outputEl  = document.getElementById('build-detail-output')
+    const timeEl    = document.getElementById('build-detail-time')
     const balanceEl = document.getElementById('build-detail-balance')
-    const badgeEl = document.getElementById('build-detail-badge')
+    const badgeEl   = document.getElementById('build-detail-badge')
 
-    if (nameEl) nameEl.textContent = data.name
-    if (iconEl) iconEl.textContent = data.icon
-    if (descEl) descEl.textContent = data.desc
-    if (costEl) costEl.textContent = data.cost
-    if (upkeepEl) upkeepEl.textContent = data.upkeep
-    if (outputEl) outputEl.textContent = data.output
-    if (timeEl) timeEl.textContent = data.time
-    if (balanceEl) balanceEl.textContent = data.balance
+    // Afficher le solde après déduction réel
+    const costValue = parseInt(data.cost.replace(/[^\d]/g, ''))
+    const afterBalance = this.constructedBuildings.has(buildingId)
+      ? 'Déjà construit'
+      : this.credits >= costValue
+        ? `${(this.credits - costValue).toLocaleString('fr-FR')} cr`
+        : 'Fonds insuffisants'
+
+    if (nameEl)    nameEl.textContent    = data.name
+    if (iconEl)    iconEl.textContent    = data.icon
+    if (descEl)    descEl.textContent    = data.desc
+    if (costEl)    costEl.textContent    = data.cost
+    if (upkeepEl)  upkeepEl.textContent  = data.upkeep
+    if (outputEl)  outputEl.textContent  = data.output
+    if (timeEl)    timeEl.textContent    = data.time
+    if (balanceEl) balanceEl.textContent = afterBalance
+
     if (badgeEl) {
-      badgeEl.textContent = data.available ? 'Disponible' : 'Verrouillé'
-      badgeEl.style.background = data.available ? '' : '#ffdad7'
-      badgeEl.style.color = data.available ? '' : '#9f403d'
+      const isBuilt = this.constructedBuildings.has(buildingId)
+      badgeEl.textContent = isBuilt ? 'Construit' : data.available ? 'Disponible' : 'Verrouillé'
+      badgeEl.style.background = isBuilt ? '#c4eaf0' : data.available ? '' : '#ffdad7'
+      badgeEl.style.color = isBuilt ? '#1a4f56' : data.available ? '' : '#9f403d'
     }
   }
 
@@ -282,32 +382,84 @@ class UIManager {
     })
   }
 
-  endTurn() {
-    this.turn++
-    this.credits += Math.floor(Math.random() * 3000 + 2000)
-
-    const turnEl = document.getElementById('turn-counter')
-    const creditsEl = document.getElementById('res-credits')
-
-    if (turnEl) turnEl.textContent = `TOUR ${this.turn}`
-    if (creditsEl) creditsEl.textContent = this.credits.toLocaleString('fr-FR')
-
-    // Flash de feedback visuel
-    const overlay = document.getElementById('ui-overlay')
-    if (overlay) {
-      overlay.style.transition = 'opacity 0.1s'
-      overlay.style.opacity = '0.7'
-      setTimeout(() => {
-        overlay.style.opacity = '1'
-      }, 150)
+  async endTurn() {
+    const token = authManager.token
+    if (!token) {
+      alert('Vous devez être connecté pour terminer un tour.')
+      return
     }
 
-    console.log(`[Stellar Empires] Tour ${this.turn} — Crédits: ${this.credits}`)
+    try {
+      const res = await fetch(`${config.serverUrl}/api/game/end-turn`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        console.error('[UI] Erreur fin de tour:', json)
+        return
+      }
+
+      const data = await res.json() as {
+        report: { creditsGain: number; energyGain: number; foodGain: number; mineralsGain: number }
+        resources: { credits: number; energy: number; food: number; minerals: number }
+      }
+
+      this.turn++
+      this.credits = data.resources.credits
+
+      // Mettre à jour l'UI
+      const turnEl    = document.getElementById('turn-counter')
+      const creditsEl = document.getElementById('res-credits')
+      const energyEl  = document.getElementById('res-energy')
+      const energyBar = document.getElementById('res-energy-bar')
+      const o2El      = document.getElementById('res-o2')
+      const o2Bar     = document.getElementById('res-o2-bar')
+
+      if (turnEl)    turnEl.textContent    = `TOUR ${this.turn}`
+      if (creditsEl) creditsEl.textContent = this.credits.toLocaleString('fr-FR')
+      if (energyEl)  energyEl.textContent  = `${data.resources.energy}%`
+      if (energyBar) energyBar.style.width = `${data.resources.energy}%`
+      if (o2El)      o2El.textContent      = `${data.resources.food}%`
+      if (o2Bar)     o2Bar.style.width     = `${data.resources.food}%`
+
+      // Badge dashboard
+      const dashTourBadge = document.querySelector('.panel-badge-dark')
+      if (dashTourBadge) dashTourBadge.textContent = `TOUR ${this.turn}`
+
+      // Flash visuel
+      const overlay = document.getElementById('ui-overlay')
+      if (overlay) {
+        overlay.style.transition = 'opacity 0.1s'
+        overlay.style.opacity = '0.7'
+        setTimeout(() => { overlay.style.opacity = '1' }, 150)
+      }
+
+      const gain = data.report.creditsGain
+      console.log(`[Stellar Empires] Tour ${this.turn} — +${gain.toLocaleString('fr-FR')} cr — Total: ${this.credits.toLocaleString('fr-FR')} cr`)
+    } catch (e) {
+      console.error('[UI] Erreur réseau fin de tour:', e)
+    }
   }
 
-  requisitionBuilding() {
+  async requisitionBuilding() {
     const data = BUILDINGS[this.currentBuilding]
     if (!data || !data.available) return
+
+    if (this.constructedBuildings.has(this.currentBuilding)) {
+      alert('Ce bâtiment est déjà construit.')
+      return
+    }
+
+    const token = authManager.token
+    if (!token) {
+      alert('Vous devez être connecté.')
+      return
+    }
 
     const costValue = parseInt(data.cost.replace(/[^\d]/g, ''))
     if (this.credits < costValue) {
@@ -315,19 +467,43 @@ class UIManager {
       return
     }
 
-    this.credits -= costValue
-    const creditsEl = document.getElementById('res-credits')
-    if (creditsEl) creditsEl.textContent = this.credits.toLocaleString('fr-FR')
+    try {
+      const res = await fetch(`${config.serverUrl}/api/game/build`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ buildingId: this.currentBuilding }),
+      })
 
-    console.log(`[Stellar Empires] Construction lancée: ${data.name} — Coût: ${costValue} cr`)
-    alert(`Construction de "${data.name}" lancée ! Complétée dans ${data.time}.`)
+      const json = await res.json() as { error?: string; credits?: number; message?: string }
+
+      if (!res.ok) {
+        alert(json.error ?? 'Erreur lors de la construction.')
+        return
+      }
+
+      this.credits = json.credits ?? this.credits - costValue
+      this.constructedBuildings.add(this.currentBuilding)
+
+      const creditsEl = document.getElementById('res-credits')
+      if (creditsEl) creditsEl.textContent = this.credits.toLocaleString('fr-FR')
+
+      this._refreshBuildingCards()
+      this.selectBuilding(this.currentBuilding) // rafraîchir le panneau détail
+
+      console.log(`[Stellar Empires] Construction lancée: ${data.name} — Coût: ${costValue} cr`)
+      alert(`Construction de "${data.name}" lancée !`)
+    } catch (e) {
+      console.error('[UI] Erreur réseau construction:', e)
+    }
   }
 }
 
 // ============================================================
 // INITIALISATION
 // ============================================================
-// Exposer l'instance globalement pour les gestionnaires onclick HTML
 declare global {
   interface Window {
     ui: UIManager
